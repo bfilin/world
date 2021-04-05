@@ -1,2 +1,5 @@
 val client_id = "id"
 val client_secret = "secret"
+val org_name = "githuborgname"
+val scope = "read:org"
+

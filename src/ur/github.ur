@@ -29,9 +29,15 @@ cookie user : { Login : string, Secret : int }
 signature S = sig
     val client_id : string
     val client_secret : string
+    val org_name : string
     val https : bool
+    val scope : string
     val onCompletion : transaction page
 end
+
+
+type org_profile = { Orgname: string }
+val json_org_profile : json org_profile = json_record { Orgname = "login"}
 
 type profile = { Login : string,
                  AvatarUrl : string,
@@ -84,8 +90,52 @@ functor Make(M : S) = struct
                       CURRENT_TIMESTAMP)));
         return profile.Login
 
+
+    fun verifyOrg url tokOpt =
+        let
+                fun checkOrgs o =
+                        (*  debug ("@ debug ---------- checkOrgs o: " ^ show o); *)
+                        let
+                                fun checkOrgs' o =
+                                        (org_profile : org_profile) <- return (Json.fromJson o);
+					if org_profile.Orgname = org_name then
+						return org_profile.Orgname
+					else
+                                                 error <xml> You are not authorized for access (c-lp2)</xml>
+                
+                                fun checkOrgs'' f s = 
+                                        (org_profile : org_profile) <- return (Json.fromJson  (f ^ "}"));
+					if org_profile.Orgname = org_name then
+						return org_profile.Orgname
+					else
+                                                 checkOrgs s
+
+                        in
+                                case String.ssplit {Haystack = o , Needle = "},"} of
+                                    None => checkOrgs' o 
+                                  | Some (f,s) => checkOrgs'' f s 
+                        end
+        in      
+
+                m <- WorldFfi.get url (Option.mp (fn s => "token " ^ s) tokOpt) False;
+                lens <- return (String.length m);
+		(* github returns [], remove it *)
+                if lens > 2 && String.sub m 0 = #"["
+                then
+                        checkOrgs (String.substring m {Start = 1, Len = lens-2}) 
+                else 
+                        error <xml> error You are not authorized for access (c-lp1)"</xml>
+
+        end
+
+
+
     fun withToken {Token = tok, ...} =
         login <- updateProfile (bless "https://api.github.com/user") (Some tok);
+        m <- verifyOrg (bless "https://api.github.com/user/orgs") (Some tok);  
+        debug ('@ debug - github user:[' ^ login ^ ']-  verifyOrg returned : [' ^ m ^ ']'); 
+
+
         secret <- oneOrNoRowsE1 (SELECT (secrets.Secret)
                                  FROM secrets
                                  WHERE secrets.Login = {[login]});
@@ -107,7 +157,7 @@ functor Make(M : S) = struct
                         val authorize_url = bless "https://github.com/login/oauth/authorize"
                         val access_token_url = bless "https://github.com/login/oauth/access_token"
                         val withToken = withToken
-                        val scope = None
+                        val scope = Some M.scope
                         val nameForScopeParameter = None
                         val parseTokenResponse = None
                     end)
@@ -125,6 +175,15 @@ functor Make(M : S) = struct
                 return (Some r.Login)
             else
                 return None
+
+
+    val requireLogin =
+        debug("github.ur requireLogin started");
+        o <- whoami;          
+        case o of             
+            None => error <xml>Access denied (must be logged in)</xml>                                                     
+          | Some _ => return ()     
+
 
     fun trackUser login =
         Monad.ignore (updateProfile (bless ("https://api.github.com/users/" ^ login)) None)

@@ -13,7 +13,9 @@ table users : { Login : string,
 signature S = sig
     val client_id : string
     val client_secret : string
+    val org_name : string
     val https : bool
+    val scope : string
     val onCompletion : transaction page
 end
 
@@ -22,4 +24,5 @@ functor Make(M : S) : sig
     val whoami : transaction (option string)
     val trackUser : string -> transaction unit
     val logout : transaction unit
+    val requireLogin : transaction unit
 end
